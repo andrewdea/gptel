@@ -38,6 +38,46 @@
 
 (declare-function gptel--stream-convert-markdown->org "gptel-org")
 
+(defcustom gptel-deal-with-error-function #'ignore
+  "Function to deal with errors in the curl command.
+Customizable so as to be set differently depending on the backend")
+
+(defcustom gptel-backend-detach? t
+  "Whether to start the backend in a separate detached process,
+or as a child process")
+
+(setq gptel-deal-with-error-function #'gptel-deal-with-error-ollama)
+
+(defun gptel-deal-with-error-ollama (status)
+  (message "status: %s" status)
+  (pcase status
+    ((pred (string-prefix-p "finished"))
+     (message "The curl command exited successfully"))
+    ((pred (string-prefix-p "exited abnormally with code 7"))
+     (progn
+       (message "It looks like Ollama might not be running!")
+       (gptel-ollama-serve)))
+    (_
+     (message "don't have a way to deal with this status"))))
+
+(defun gptel-ollama-serve (&optional no-confirm)
+  (interactive "P")
+  (if (not (string-empty-p
+            (shell-command-to-string "pgrep ollama")))
+      (warn "Ollama is already running")
+    ;; TODO this needs some work to make it actually compatible with detached
+    (let ((cmd (if (and
+                    gptel-backend-detach?
+                    (fboundp 'detached-shell-command))
+                   #'detached-shell-command
+                 #'async-shell-command)))
+      (when
+          (or no-confirm
+              (yes-or-no-p "Do you want to start the Ollama server?"))
+        (funcall cmd "ollama serve" "*gptel-ollama-serve*")))))
+
+(add-hook 'gptel-mode-hook #'gptel-ollama-serve)
+
 (defconst gptel-curl--common-args
   (if (memq system-type '(windows-nt ms-dos))
       '("--disable" "--location" "--silent" "-XPOST"
@@ -157,19 +197,24 @@ the response is inserted into the current buffer after point."
                  (set-process-filter process #'gptel-curl--stream-filter))
         (set-process-sentinel process #'gptel-curl--sentinel)))))
 
-(defun gptel-curl--log-response (proc-buf proc-info)
+(defun gptel-curl--log-response (proc-buf proc-info status)
   "Parse response buffer PROC-BUF and log response.
 
-PROC-INFO is the plist containing process metadata."
+PROC-INFO is the plist containing process metadata.
+STATUS is the string returned by the process upon completion."
   (with-current-buffer proc-buf
     (save-excursion
       (goto-char (point-min))
       (when (re-search-forward "?\n?\n" nil t)
         (when (eq gptel-log-level 'debug)
-          (gptel--log (gptel--json-encode
-                       (buffer-substring-no-properties
-                        (point-min) (1- (point))))
-                      "response headers"))
+          (progn
+            (gptel--log (gptel--json-encode
+                         status)
+                        "curl-process status")
+            (gptel--log (gptel--json-encode
+                         (buffer-substring-no-properties
+                          (point-min) (1- (point))))
+                        "response headers")))
         (let ((p (point)))
           (when (search-forward (plist-get proc-info :token) nil t)
             (goto-char (1- (match-beginning 0)))
@@ -198,10 +243,10 @@ PROC-INFO is the plist containing process metadata."
     (message "No gptel request associated with buffer %S" (buffer-name buf))))
 
 ;; TODO: Separate user-messaging from this function
-(defun gptel-curl--stream-cleanup (process _status)
+(defun gptel-curl--stream-cleanup (process status)
   "Process sentinel for GPTel curl requests.
 
-PROCESS and _STATUS are process parameters."
+PROCESS and STATUS are process parameters."
   (let ((proc-buf (process-buffer process)))
     (let* ((info (alist-get process gptel-curl--process-alist))
            (gptel-buffer (plist-get info :buffer))
@@ -212,7 +257,7 @@ PROCESS and _STATUS are process parameters."
            (start-marker (plist-get info :position))
            (http-status (plist-get info :http-status))
            (http-msg (plist-get info :status)))
-      (when gptel-log-level (gptel-curl--log-response proc-buf info)) ;logging
+      (when gptel-log-level (gptel-curl--log-response proc-buf info status)) ;logging
       (if (member http-status '("200" "100")) ;Finish handling response
           (with-current-buffer gptel-buffer
             (if (not tracking-marker)   ;Empty response
@@ -237,16 +282,18 @@ PROCESS and _STATUS are process parameters."
               (if (stringp error-data)
                   (message "%s error: (%s) %s" backend-name http-msg error-data)
                 (when-let ((error-msg (plist-get error-data :message)))
-                    (message "%s error: (%s) %s" backend-name http-msg error-msg))
+                  (message "%s error: (%s) %s" backend-name http-msg error-msg))
                 (when-let ((error-type (plist-get error-data :type)))
-                    (setq http-msg (concat "("  http-msg ") " (string-trim error-type))))))
+                  (setq http-msg (concat "("  http-msg ") " (string-trim error-type))))))
              ((eq response 'json-read-error)
               (message "%s error (%s): Malformed JSON in response." backend-name http-msg))
-             (t (message "%s error (%s): Could not parse HTTP response." backend-name http-msg)))))
+             (t (message "%s error (%s): Could not parse HTTP
+  response." backend-name http-msg)))))
         (with-current-buffer gptel-buffer
           (when gptel-mode
             (gptel--update-status
-             (format " Response Error: %s" http-msg) 'error))))
+             (format " Response Error: %s" http-msg) 'error))
+          (funcall gptel-deal-with-error-function status)))
       ;; Run hook in visible window to set window-point, BUG #269
       (if-let ((gptel-window (get-buffer-window gptel-buffer 'visible)))
           (with-selected-window gptel-window
@@ -359,15 +406,16 @@ BACKEND is the LLM backend in use.
 PROC-INFO is a plist with process information and other context.
 See `gptel-curl--get-response' for its contents.")
 
-(defun gptel-curl--sentinel (process _status)
+(defun gptel-curl--sentinel (process status)
   "Process sentinel for gptel curl requests.
 
-PROCESS and _STATUS are process parameters."
+PROCESS and STATUS are process parameters."
   (let ((proc-buf (process-buffer process)))
     (when-let* (((eq (process-status process) 'exit))
                 (proc-info (alist-get process gptel-curl--process-alist))
                 (proc-callback (plist-get proc-info :callback)))
-      (when gptel-log-level (gptel-curl--log-response proc-buf proc-info)) ;logging
+      (when gptel-log-level (gptel-curl--log-response proc-buf
+                                                      proc-info status)) ;logging
       (pcase-let ((`(,response ,http-msg ,error)
                    (with-current-buffer proc-buf
                      (gptel-curl--parse-response proc-info))))
