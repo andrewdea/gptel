@@ -1881,6 +1881,38 @@ context for the ediff session."
   (interactive "p")
   (gptel--previous-variant (- arg)))
 
+
+;; TODO this just opens Ollama but we might also know which model we
+;; want to run (from the config and the commands being run), so it'd
+;; be good to start serving that as well
+(setq ollama--start-cmd "open -a Ollama")
+
+;; TODO this doesn't work because of the escape characters, need to
+;; figure out how to fix that
+(setq ollama--quit-cmd "osascript -e 'quit app \"Ollama.app\"'")
+
+(setq ollama--stop-cmd "pkill SIGINT ollama")
+
+;;;###autoload
+(defun gptel-ollama-start (&optional no-confirm)
+  (interactive "P")
+  (message "here")
+  (message "res: %s" (shell-command-to-string "pgrep ollama"))
+  (if (not (string-empty-p
+            (shell-command-to-string "pgrep ollama")))
+      (warn "Ollama is already running")
+    ;; TODO this needs some work to make it actually compatible with detached
+    (when
+        (or no-confirm
+            (yes-or-no-p "Do you want to start Ollama?"))
+      (cmd ollama--start-cmd))))
+
+(add-hook 'gptel-mode-hook #'gptel-ollama-start)
+
+(defun gptel-stop ()
+  (interactive)
+  (cmd ollama--stop-cmd))
+
 (provide 'gptel)
 ;;; gptel.el ends here
 

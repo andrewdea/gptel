@@ -42,10 +42,6 @@
   "Function to deal with errors in the curl command.
 Customizable so as to be set differently depending on the backend")
 
-(defcustom gptel-backend-detach? t
-  "Whether to start the backend in a separate detached process,
-or as a child process")
-
 (setq gptel-deal-with-error-function #'gptel-deal-with-error-ollama)
 
 (defun gptel-deal-with-error-ollama (status)
@@ -56,27 +52,9 @@ or as a child process")
     ((pred (string-prefix-p "exited abnormally with code 7"))
      (progn
        (message "It looks like Ollama might not be running!")
-       (gptel-ollama-serve)))
+       (gptel-ollama-start)))
     (_
      (message "don't have a way to deal with this status"))))
-
-(defun gptel-ollama-serve (&optional no-confirm)
-  (interactive "P")
-  (if (not (string-empty-p
-            (shell-command-to-string "pgrep ollama")))
-      (warn "Ollama is already running")
-    ;; TODO this needs some work to make it actually compatible with detached
-    (let ((cmd (if (and
-                    gptel-backend-detach?
-                    (fboundp 'detached-shell-command))
-                   #'detached-shell-command
-                 #'async-shell-command)))
-      (when
-          (or no-confirm
-              (yes-or-no-p "Do you want to start the Ollama server?"))
-        (funcall cmd "ollama serve" "*gptel-ollama-serve*")))))
-
-(add-hook 'gptel-mode-hook #'gptel-ollama-serve)
 
 (defconst gptel-curl--common-args
   (if (memq system-type '(windows-nt ms-dos))
