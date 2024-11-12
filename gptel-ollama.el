@@ -77,15 +77,14 @@ Intended for internal use only.")
   "JSON encode PROMPTS for sending to ChatGPT."
   (let ((prompts-plist
          `(:model ,(gptel--model-name gptel-model)
-           :messages [,@prompts]
-           :stream ,(or (and gptel-stream gptel-use-curl
-                         (gptel-backend-stream gptel-backend))
-                     :json-false)))
+                  :messages [,@prompts]
+                  :stream ,(or (and gptel-stream gptel-use-curl
+                                    (gptel-backend-stream gptel-backend))
+                               :json-false)))
         options-plist)
     (when gptel-temperature
-      (setq options-plist
-            (plist-put options-plist :temperature
-                       gptel-temperature)))
+      (plist-put prompts-plist :temperature
+                 gptel-temperature))
     (when gptel-max-tokens
       (setq options-plist
             (plist-put options-plist :num_predict
