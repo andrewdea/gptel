@@ -52,7 +52,7 @@ Customizable so as to be set differently depending on the backend")
     ((pred (string-prefix-p "exited abnormally with code 7"))
      (progn
        (warn "It looks like Ollama might not be running!")
-       gptel-ollama-start)
+       (gptel-ollama-start))
      ;; TODO: set the header line to "try again"
      )
     (_

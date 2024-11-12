@@ -1901,7 +1901,7 @@ context for the ediff session."
     (when
         (or no-confirm
             (yes-or-no-p "Do you want to start Ollama?"))
-      (open-app "Ollama"))))
+      (app-open "Ollama"))))
 
 (add-hook 'gptel-mode-hook #'gptel-ollama-start)
 
