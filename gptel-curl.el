@@ -51,8 +51,10 @@ Customizable so as to be set differently depending on the backend")
      (message "The curl command exited successfully"))
     ((pred (string-prefix-p "exited abnormally with code 7"))
      (progn
-       (message "It looks like Ollama might not be running!")
-       (gptel-ollama-start)))
+       (warn "It looks like Ollama might not be running!")
+       gptel-ollama-start)
+     ;; TODO: set the header line to "try again"
+     )
     (_
      (message "don't have a way to deal with this status"))))
 

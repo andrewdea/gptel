@@ -1887,25 +1887,21 @@ context for the ediff session."
 ;; be good to start serving that as well
 (setq ollama--start-cmd "open -a Ollama")
 
-;; TODO this doesn't work because of the escape characters, need to
-;; figure out how to fix that
+
 (setq ollama--quit-cmd "osascript -e 'quit app \"Ollama.app\"'")
 
-(setq ollama--stop-cmd "pkill SIGINT ollama")
+(setq ollama--stop-cmd "pkill INT ollama")
 
 ;;;###autoload
 (defun gptel-ollama-start (&optional no-confirm)
   (interactive "P")
-  (message "here")
-  (message "res: %s" (shell-command-to-string "pgrep ollama"))
   (if (not (string-empty-p
-            (shell-command-to-string "pgrep ollama")))
-      (warn "Ollama is already running")
-    ;; TODO this needs some work to make it actually compatible with detached
+            (cmd "pgrep ollama")))
+      (message "Ollama is already running")
     (when
         (or no-confirm
             (yes-or-no-p "Do you want to start Ollama?"))
-      (cmd ollama--start-cmd))))
+      (open-app "Ollama"))))
 
 (add-hook 'gptel-mode-hook #'gptel-ollama-start)
 
